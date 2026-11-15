@@ -322,6 +322,100 @@ d;b=init_request_parameters(e);fetch("https://"+a+"/gg/rooms",b).then(f=>{f.ok?f
 gxc_set_player_status=(a,b)=>{gxc_player_info.forEach(d=>{d.playerId===a&&(d.status=b)});if(window.parent){var c={type:"players"};c.roomSize=gxc_room_size;c.local=gxc_local_player;c.players=gxc_player_info;window.parent.postMessage(c,"*")}},window.addEventListener("message",a=>{if(a&&a.data&&"parent_send_chat_message"==a.data.type){var b=a.data.fl;if(null===b||void 0===b)b=-1;chat_callback(a.data.content||"",b)}}),gxc_receive_chat_message=(a,b,c)=>{window.parent.postMessage({type:"receive_chat_message",
 content:a,src:b,fl:c},"*")},gxc_report_status=a=>{window.parent.postMessage({type:"report_status",status:a},"*")});"undefined"!=typeof window&&(wallpaper_update_config=k.cwrap("wallpaper_update_config",null,["string"]),wallpaper_reset_config=k.cwrap("wallpaper_reset_config",null,["string"]),wallpaper_update_subscription_data=k.cwrap("wallpaper_update_subscription_data",null,["string"]));
 
+
+// Save backup controls, using this build's private filesystem APIs.
+(function () {
+  const root = "/_savedata";
+  function ready() {
+    if ((Wc(root).mode & 61440) !== 16384) throw Error("Save folder is not ready.");
+  }
+  function scan(dir, out) {
+    Da(dir).forEach(name => {
+      if (name === "." || name === "..") return;
+      const path = dir + "/" + name, type = Wc(path).mode & 61440;
+      if (type === 16384) scan(path, out);
+      else if (type === 32768) {
+        const bytes = Ga(Fa(path).node), chunks = [];
+        for (let i=0; i<bytes.length; i+=32768)
+          chunks.push(String.fromCharCode.apply(null,bytes.subarray(i,i+32768)));
+        out.push({path,encoding:"base64",size:bytes.length,data:btoa(chunks.join(""))});
+      }
+    });
+  }
+  window.exportSaves = function () {
+    try {
+      ready(); const files=[]; scan(root,files);
+      if (!files.length) throw Error("No save files found. Save in-game first.");
+      const backup={format:"undertale-web-save-backup",version:1,exportedAt:new Date().toISOString(),roots:[root],files};
+      const url=URL.createObjectURL(new Blob([JSON.stringify(backup,null,2)],{type:"application/json"}));
+      const a=document.createElement("a"); a.href=url;
+      a.download="undertale-saves-"+new Date().toISOString().replace(/[:.]/g,"-")+".json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
+    } catch(e) { alert("Export failed: "+e.message); }
+  };
+  function sync() { return new Promise((resolve,reject)=>Eb(false,e=>e?reject(e):resolve())); }
+  function checkPath(path) {
+    if (typeof path!=="string" || !path.startsWith(root+"/") || path.includes("\\") || /[\x00-\x1f]/.test(path))
+      throw Error("Invalid save path.");
+    const parts=path.slice(root.length+1).split("/");
+    if(parts.some(p=>!p||p==="."||p==="..")) throw Error("Unsafe save path.");
+    return parts;
+  }
+  function existing(path) {
+    try { return Wc(path); } catch(e) { if(e.Ki===44) return null; throw e; }
+  }
+  window.importSaves = function () {
+    const input=document.createElement("input"); input.type="file"; input.accept=".json,application/json";
+    input.onchange=async function () {
+      const file=input.files[0]; if(!file) return;
+      let paused=false, changed=false;
+      try {
+        ready();
+        if(file.size>32*1024*1024) throw Error("Backup exceeds the 32 MB limit.");
+        const backup=JSON.parse(await file.text());
+        if(backup.format!=="undertale-web-save-backup" || backup.version!==1 || !Array.isArray(backup.files) || !backup.files.length)
+          throw Error("Choose a JSON backup made by Export Saves.");
+        const seen=new Set();
+        const entries=backup.files.map(entry=>{
+          const parts=checkPath(entry.path);
+          if(seen.has(entry.path)) throw Error("Duplicate save path.");
+          seen.add(entry.path);
+          if(entry.encoding!=="base64" || typeof entry.data!=="string") throw Error("Invalid file encoding.");
+          const text=atob(entry.data), bytes=Uint8Array.from(text,c=>c.charCodeAt(0));
+          if(entry.size!==bytes.length) throw Error("Save file size does not match.");
+          return {path:entry.path,parts,bytes};
+        });
+        // Reject symlinks and path conflicts before writing anything.
+        entries.forEach(entry=>{
+          let path=root;
+          entry.parts.forEach((part,i)=>{
+            path+="/"+part;
+            if(i<entry.parts.length-1 && seen.has(path)) throw Error("Conflicting backup paths.");
+            const st=existing(path);
+            if(st && (st.mode&61440)!==(i===entry.parts.length-1?32768:16384))
+              throw Error("Save path conflicts with an existing directory or symbolic link.");
+          });
+        });
+        if(!confirm("Import "+entries.length+" save file(s)?\n\nMatching files will be overwritten. Other files will stay unchanged.\nExport your current saves first.\nThe page will reload after the import.")) return;
+        k.pauseMainLoop(); paused=true;
+        for(const entry of entries) {
+          Ha(entry.path.slice(0,entry.path.lastIndexOf("/")));
+          changed=true; Ia(entry.path,entry.bytes);
+        }
+        await sync();
+        alert("Saves imported and stored successfully. The page will now reload.");
+        location.reload();
+      } catch(e) {
+        console.error("Save import failed",e);
+        alert("Import failed: "+(e.message||e)+(changed?"\n\nSome files may already have changed. Do not assume the import completed. Keep your original backup.":""));
+        if(paused) k.resumeMainLoop();
+      }
+    };
+    input.click();
+  };
+})();
+
 }
 
 /*
