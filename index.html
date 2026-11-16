@@ -876,11 +876,12 @@
         lockOrientationIfSupported();
       });
     </script>
-	<!-- Load Main Game Runner JS File -->
-	<!-- Downloads game.unx parts from raw.githubusercontent, joins them, then loads the runner -->
+<!-- Load Main Game Runner JS File -->
+<!-- Downloads game.unx parts from raw.githubusercontent, joins them, and loads runner assets via jsDelivr -->
 <script>
 (function () {
-  var BASE_URL = "https://raw.githubusercontent.com/Bubba7004/undertale-but-you-have-sans-powers-web-port/main/";
+  var RAW_BASE_URL = "https://raw.githubusercontent.com/Bubba7004/undertale-but-you-have-sans-powers-web-port/main/";
+  var CDN_BASE_URL = "https://cdn.jsdelivr.net/gh/Bubba7004/undertale-but-you-have-sans-powers-web-port@main/";
   var GAME_FILE = "game.unx";
   var GAME_PARTS = 8;         // number of game.unx.partN files
 
@@ -902,7 +903,7 @@
   function startRunner() {
     var s = document.createElement("script");
     s.async = true;
-    s.src = BASE_URL + "runner.js";
+    s.src = CDN_BASE_URL + "runner.js";
     document.body.appendChild(s);
   }
 
@@ -912,7 +913,7 @@
     for (var i = 1; i <= GAME_PARTS; i++) {
       setStatus("Loading game data (" + (i - 1) + "/" + GAME_PARTS + ")");
       var name = GAME_FILE + ".part" + i;
-      var res = await fetch(BASE_URL + name);
+      var res = await fetch(RAW_BASE_URL + name);
       var type = res.headers.get("content-type") || "";
       if (!res.ok || type.indexOf("text/html") !== -1) {
         if (i === 1) return null; 
@@ -925,7 +926,7 @@
     return URL.createObjectURL(merged);
   }
 
-  // Point the game's request for game.unx at the joined data blob, and load runner files from GitHub raw if needed.
+  // Point the game's request for game.unx at the blob, and route relative runner files to jsDelivr
   function redirectGameFile(blobUrl) {
     function isGameFile(u) {
       var s = String(u);
@@ -938,8 +939,7 @@
       if (isGameFile(urlStr)) {
         input = blobUrl;
       } else if (urlStr && !urlStr.startsWith("http") && !urlStr.startsWith("blob:") && !urlStr.startsWith("data:")) {
-        // Resolve relative runner files (like runner.data, runner.wasm, audio-worklet.js) to raw.githubusercontent
-        input = BASE_URL + urlStr;
+        input = CDN_BASE_URL + urlStr;
       }
       return origFetch.call(this, input, init);
     };
@@ -950,7 +950,7 @@
       if (isGameFile(url)) {
         args[1] = blobUrl;
       } else if (url && !url.startsWith("http") && !url.startsWith("blob:") && !url.startsWith("data:")) {
-        args[1] = BASE_URL + url;
+        args[1] = CDN_BASE_URL + url;
       }
       return origOpen.apply(this, args);
     };
