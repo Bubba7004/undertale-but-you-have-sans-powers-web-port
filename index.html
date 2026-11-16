@@ -877,13 +877,10 @@
       });
     </script>
 	<!-- Load Main Game Runner JS File -->
-    <!-- Joins game.unx.part1..N if present (for GitHub Pages), then loads the runner -->
+	<!-- Downloads game.unx parts from raw.githubusercontent, joins them, then loads the runner -->
 <script>
-// Split-file loader: lets the game run from hosts with a per-file size limit (e.g. GitHub Pages).
-// If game.unx.part1..N exist next to this page, they are downloaded, joined in the browser,
-// and the game's request for game.unx is redirected to the joined data.
-// If no parts exist, the page falls back to loading a normal game.unx (works locally too).
 (function () {
+  var BASE_URL = "https://raw.githubusercontent.com/Bubba7004/undertale-but-you-have-sans-powers-web-port/main/";
   var GAME_FILE = "game.unx";
   var GAME_PARTS = 8;         // number of game.unx.partN files
 
@@ -905,31 +902,30 @@
   function startRunner() {
     var s = document.createElement("script");
     s.async = true;
-    s.src = "runner.js";
+    s.src = BASE_URL + "runner.js";
     document.body.appendChild(s);
   }
 
-  // Returns a blob: URL for the joined game data, or null if no parts are present.
+  // Returns a blob: URL for the joined game data fetched from raw.githubusercontent.com
   async function loadParts() {
     var blobs = [];
     for (var i = 1; i <= GAME_PARTS; i++) {
       setStatus("Loading game data (" + (i - 1) + "/" + GAME_PARTS + ")");
       var name = GAME_FILE + ".part" + i;
-      var res = await fetch(name);
+      var res = await fetch(BASE_URL + name);
       var type = res.headers.get("content-type") || "";
       if (!res.ok || type.indexOf("text/html") !== -1) {
-        if (i === 1) return null; // no split files: use the plain game.unx instead
+        if (i === 1) return null; 
         throw new Error(name + " is missing (HTTP " + res.status + ")");
       }
       blobs.push(await res.blob());
     }
     setStatus("Loading game data (" + GAME_PARTS + "/" + GAME_PARTS + ")");
     var merged = new Blob(blobs);
-    // Size check removed to allow custom modded file sizes
     return URL.createObjectURL(merged);
   }
 
-  // Point the game's request for game.unx at the joined data.
+  // Point the game's request for game.unx at the joined data blob, and load runner files from GitHub raw if needed.
   function redirectGameFile(blobUrl) {
     function isGameFile(u) {
       var s = String(u);
@@ -938,12 +934,12 @@
 
     var origFetch = window.fetch;
     window.fetch = function (input, init) {
-      if (typeof input === "string" && isGameFile(input)) {
+      var urlStr = typeof input === "string" ? input : (input instanceof Request ? input.url : (input instanceof URL ? input.href : ""));
+      if (isGameFile(urlStr)) {
         input = blobUrl;
-      } else if (typeof URL !== "undefined" && input instanceof URL && isGameFile(input.href)) {
-        input = blobUrl;
-      } else if (typeof Request !== "undefined" && input instanceof Request && isGameFile(input.url)) {
-        input = new Request(blobUrl, input);
+      } else if (urlStr && !urlStr.startsWith("http") && !urlStr.startsWith("blob:") && !urlStr.startsWith("data:")) {
+        // Resolve relative runner files (like runner.data, runner.wasm, audio-worklet.js) to raw.githubusercontent
+        input = BASE_URL + urlStr;
       }
       return origFetch.call(this, input, init);
     };
@@ -951,7 +947,11 @@
     var origOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (method, url) {
       var args = Array.prototype.slice.call(arguments);
-      if (isGameFile(url)) args[1] = blobUrl;
+      if (isGameFile(url)) {
+        args[1] = blobUrl;
+      } else if (url && !url.startsWith("http") && !url.startsWith("blob:") && !url.startsWith("data:")) {
+        args[1] = BASE_URL + url;
+      }
       return origOpen.apply(this, args);
     };
   }
